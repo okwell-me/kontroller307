@@ -19,7 +19,7 @@
 Adafruit_ADS1115 ads;
 GStepper2<STEPPER2WIRE> motor1(3200, MOTOR1_STEP, MOTOR1_DIR, MOTOR1_EN); //шагов/оборот, step, dir, en
 
-uint64_t sendTimer; //таймер отправки sendData
+uint64_t sendTimer; //таймер отправки sendData()
 uint8_t dataIn[4] = {0}; //массив команды
 uint8_t dataOut[11] = {0}; //массив данных на отправку
 uint16_t targetPos = 0; // целевая позиция в ед. энкодера (50/мм)
@@ -92,7 +92,7 @@ void encoder_roll_isr() {
   if  (digitalRead(ENC1_b) == HIGH) {
     encoderRollPos++;
   } else {
-    if (encoderRollPos == 0) encoderRollPos = 0;
+    if (encoderRollPos == 0) encoderRollPos = 1;
     else encoderRollPos--;
   }
 }
@@ -130,7 +130,7 @@ void motorFwd(uint16_t spd) {
     motor1.stop(); //остановить двигатель(костыль)
     motor1.setAcceleration(4000); //установить ускорение 4000 шаг/сек
     motor1.setMaxSpeed(s); //установить макс скорость
-    motor1.setTarget(100000, RELATIVE); //установить целевкую координату(немного костыль, т к координата расположена дальше концевика
+    motor1.setTarget(100000, RELATIVE); //установить целевую координату(немного костыль, т к координата расположена дальше концевика
     //просто разгоняемся и едем
   }
 }
@@ -255,7 +255,7 @@ void loop(void)
         motorStop();
       } else if (dataIn[1] == 1) { //равен 1 -- едем вперёд со скоростью dataIn[2]+dataIn[3]
         motorFwd(dataIn[2] * 256 + dataIn[3]);
-      } else if (dataIn[1] == 2) {//равен 2 -- едем вперёд со скоростью dataIn[2]+dataIn[3]
+      } else if (dataIn[1] == 2) {//равен 2 -- едем назад со скоростью dataIn[2]+dataIn[3]
         motorBckwd(dataIn[2] * 256 + dataIn[3]);
       } else if (dataIn[1] == 4) {//равен 4 -- едем домой, ищем концевик
         motorHome();
