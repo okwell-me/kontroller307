@@ -22,10 +22,11 @@ GStepper2<STEPPER2WIRE> motor1(3200, MOTOR1_STEP, MOTOR1_DIR, MOTOR1_EN); //ша
 uint64_t sendTimer; //таймер отправки sendData
 uint8_t dataIn[4] = {0}; //массив команды
 uint8_t dataOut[11] = {0}; //массив данных на отправку
-uint16_t targetPos = 0; // целевая позиция в ед. энкодера (1 ед = 0,02мм)
+uint16_t targetPos = 0; // целевая позиция в ед. энкодера (50/мм)
 
 uint8_t koncevik1Counter, koncevik2Counter;  //буфер для борьбы с помехами на концевике
 bool koncevik1State, koncevik2State; //состояние концевика
+bool knowHome; //известна ли позиция домашней точки
 
 bool haveTarget = false; //переменная для подстройки позиции
 
@@ -54,7 +55,7 @@ void sendData() {
 
   dataOut[0] = 3; //метка данных
 
-  dataOut[1] = adc0 >> 8; //верхний байт 
+  dataOut[1] = adc0 >> 8; //верхний байт
   dataOut[2] = adc0; //нижний байт
 
   dataOut[3] = adc1 >> 8;
@@ -68,7 +69,7 @@ void sendData() {
 
   dataOut[9] = encoderLinPos >> 8; //верхний байт энкодера
   dataOut[10] = encoderLinPos;
-  
+
   Serial.write(dataOut, 11); //отправить
 }
 
@@ -103,6 +104,7 @@ void concevik1() {
     motor1.setCurrent(0); //обнулить счётчик шагов
     koncevik1State = true; //состояние концевика true
     haveTarget = false; //должно отключать движение к цели, но хз
+    knowHome = true; //теперь знаем домашнюю точку
     delay(100); //задержка чтобы штанга остановилась
     encoderLinPos = 0; //обнуление энкодера
   }
@@ -169,9 +171,15 @@ void motorHome() {
   haveTarget = false;
   if (!koncevik1State) {
     motor1.stop();
-    motor1.setAcceleration(4000);
-    motor1.setMaxSpeed(1600);
-    motor1.setTarget(-100000, RELATIVE);
+    if (knowHome) { //если известна домашняя точка, то едем чуть дальше дома до концевика
+      motor1.setAcceleration(4000);
+      motor1.setMaxSpeed(1600);
+      motor1.setTarget(-100);
+    } else { // иначе едем медленно назад, пока не упрёмся в концевик
+      motor1.setAcceleration(2000);
+      motor1.setMaxSpeed(800);
+      motor1.setTarget(-100000, RELATIVE);
+    }
   }
 }
 
@@ -187,7 +195,7 @@ void setup(void)
   ads.setGain(GAIN_TWOTHIRDS); // устанавливаем макс диапазон напряжений АЦП, 1 единица равна 0.1875mV
   ads.setDataRate(RATE_ADS1115_64SPS);//устанавливаем частоту дискретизации 8, 16, 32, 64, 128, 250, 475, 860 ГЦ
   // но она работает с меньшей частотой посему-то, мб АЦП китайский
-  
+
   ads.begin();//база
   Wire.setClock(1000000);//установка скорости I2C чтобы быстро перекидывать байты
 
@@ -197,7 +205,7 @@ void setup(void)
   pinMode(KONCEVIK1, INPUT_PULLUP);  //подтяжка контактов концевиков вверх
   pinMode(KONCEVIK2, INPUT_PULLUP);
   pinMode(KONCEVIK3, INPUT_PULLUP);
-  
+
   pinMode(MOTOR1_STEP, OUTPUT); //выходы шаговика
   pinMode(MOTOR1_DIR, OUTPUT);
   pinMode(MOTOR1_EN, OUTPUT);
@@ -221,23 +229,23 @@ void loop(void)
     koncevik1Counter = 0; //если пришёл высокий уровень, то это помехи, поэтому концевик не нажат, обнуляем счётчик
     koncevik1State = false;
   }
-  
-    if ((digitalRead(KONCEVIK2) == 0)/* || (digitalRead(KONCEVIK3) == 0)*/) { //аналогично
+
+  if ((digitalRead(KONCEVIK2) == 0)/* || (digitalRead(KONCEVIK3) == 0)*/) { //аналогично
     koncevik2Counter++;
     if (koncevik2Counter > 3) concevik2();
   } else {
     koncevik2Counter = 0;
     koncevik2State = false;
   }
-  
-    if (haveTarget && (motor1.getStatus() == 0)) { //если пришла целевая точка, то have target = true и ждём пока двигатель остановится
-      motorMoveToPosRel((targetPos - encoderLinPos)); //отправляем новую команду на перемещение для подстройки положения
-      if (abs(targetPos - encoderLinPos) < 10) { //гистерезис
-        haveTarget = false; //приехали в нужную точку, отключаем следование к цели
-        motor1.setCurrent(encoderLinPos*0.87);//перевод значений линейного энкодера в шаги двигателя
-      }                                       //работает только с такой скоростью и ускорением
-    }
-    
+
+  if (haveTarget && (motor1.getStatus() == 0)) { //если пришла целевая точка, то have target = true и ждём пока двигатель остановится
+    motorMoveToPosRel((targetPos - encoderLinPos)); //отправляем новую команду на перемещение для подстройки положения
+    if (abs(targetPos - encoderLinPos) < 10) { //гистерезис
+      haveTarget = false; //приехали в нужную точку, отключаем следование к цели
+      motor1.setCurrent(encoderLinPos * 0.87); //перевод значений линейного энкодера в шаги двигателя
+    }                                       //работает только с такой скоростью и ускорением
+  }
+
   if (Serial.available()) { //если пришло сообщение
     delay(2); //Ждём чтобы всё дошло
     Serial.readBytes(dataIn, 4);// посылка размером 4 байта
@@ -252,14 +260,14 @@ void loop(void)
       } else if (dataIn[1] == 4) {//равен 4 -- едем домой, ищем концевик
         motorHome();
       } else if (dataIn[1] == 8) {//равен 8 -- едем в точку dataIn[2]+dataIn[3] это расстояние в миллиметрах*100
-        targetPos = (dataIn[2] * 128 + dataIn[3]/2); //300 mm = 15000 linear
+        targetPos = (dataIn[2] * 128 + dataIn[3] / 2); //300 mm = 15000 linear
         int temp = targetPos * 0.87; //приведение значений энкодера к шагам
         motorMoveToPos(temp); //едем
         haveTarget = true; //движемся к цели
       }
     }
   }
-  
+
   if (millis() - sendTimer > 50) { //таймер на отправку
     sendData(); //отправляем
     sendTimer = millis();//обновляем таймер
