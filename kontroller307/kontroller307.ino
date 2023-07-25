@@ -22,7 +22,7 @@ GStepper2<STEPPER2WIRE> motor1(3200, MOTOR1_STEP, MOTOR1_DIR, MOTOR1_EN); //ша
 uint64_t sendTimer; //таймер отправки sendData
 uint8_t dataIn[4] = {0}; //массив команды
 uint8_t dataOut[11] = {0}; //массив данных на отправку
-uint16_t targetPos = 0; // целевая позиция в ед. энкодера (50/мм)
+uint16_t targetPos = 0; // целевая позиция в ед. энкодера (1 ед = 0,02мм)
 
 uint8_t koncevik1Counter, koncevik2Counter;  //буфер для борьбы с помехами на концевике
 bool koncevik1State, koncevik2State; //состояние концевика
